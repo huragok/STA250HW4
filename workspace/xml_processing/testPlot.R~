@@ -1,0 +1,54 @@
+library(XML)
+library(SVGAnnotation)
+setwd("~/Documents/UCDavis/2014Winter/STA250/HW4/workspace/data")
+
+temp = xmlTreeParse("data_RSSI.xml", useInternalNodes=TRUE)
+list_summary = xmlToList(temp)
+
+# Preprocessing: extract datas from the list 
+## Extract the measurement locations
+extract_x <- function(list_per_location) {
+	return(as.numeric(list_per_location$x))
+}
+
+extract_y <- function(list_per_location) {
+	return(as.numeric(list_per_location$y))
+}
+
+x = unlist(lapply(list_summary$RSSI, extract_x))
+names(x) <- NULL
+
+y = unlist(lapply(list_summary$RSSI, extract_y))
+names(y) <- NULL
+
+## Extract the floorplan
+### Extract the corner locations
+corner_x = unlist(lapply(list_summary$floorplan$list_corner, extract_x))
+names(corner_x) <- NULL
+
+corner_y = unlist(lapply(list_summary$floorplan$list_corner, extract_y))
+names(corner_y) <- NULL
+
+### Extract the walls
+mat_wall = matrix(as.numeric(unlist(list_summary$floorplan$list_wall)), ncol = 2, byrow = TRUE)
+
+plot_wall <- function(row, corner_x, corner_y) {
+	segments(75 - corner_y[row[1]], corner_x[row[1]], 75 - corner_y[row[2]], corner_x[row[2]])
+}
+
+## Extract the BS locations
+mat_BS = matrix(as.numeric(unlist(list_summary$BS)), ncol = 2, byrow = TRUE)
+
+plot_BS <- function(row) {
+	points(row[1], row[2], pch = 17)
+}
+
+# Plot the floor plan and the measurement locations
+svg("test.svg")
+plot(75 - y, x, pch = 20)
+apply(mat_wall, 1, plot_wall, corner_x = corner_x, corner_y = corner_y)
+apply(mat_BS, 1, plot_BS)
+dev.off()
+
+
+
