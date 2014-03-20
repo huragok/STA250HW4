@@ -1,0 +1,118 @@
+library(XML)
+
+setwd("~/Documents/UCDavis/2014Winter/STA250/HW4/workspace/data")
+
+data_RSSI_raw = read.csv("omni_16dbm.csv", header = FALSE, sep = "\t", as.is=TRUE) # Import the RSSI file
+
+# Function to create a list of lists based on dataframe corresponding to observations at one location on one specific direction
+create_list_per_direction <- function(frame_per_direction) {
+	list_per_direction = list(list(mean = mean(frame_per_direction$V7), sd = sd(frame_per_direction$V7), ID = 1),
+				  list(mean = mean(frame_per_direction$V8), sd = sd(frame_per_direction$V8), ID = 2),
+				  list(mean = mean(frame_per_direction$V9), sd = sd(frame_per_direction$V9), ID = 3),
+				  list(mean = mean(frame_per_direction$V10), sd = sd(frame_per_direction$V10), ID = 4),
+				  list(mean = mean(frame_per_direction$V11), sd = sd(frame_per_direction$V11), ID = 5))
+	list_per_direction$number_sample = nrow(frame_per_direction)
+	list_per_direction$direction = frame_per_direction$V4[1]
+	return(list_per_direction)
+}
+
+# Function to create a list of lists based on dataframe corresponding to observations at one location
+create_list_per_location <- function(frame_per_location) {
+	list_per_location = list()
+	list_per_location$location = c(frame_per_location$V1[1], frame_per_location$V2[1])
+
+	frame_per_direction = split(frame_per_location, frame_per_location$V4)
+	
+	list_per_location$list_per_direction = lapply(frame_per_direction, create_list_per_direction)
+	return(list_per_location)
+}
+
+# Function to create a list of lists in the same structure as the desired XML file
+create_list <- function(frame_data) {
+	frame_per_location = split(frame_data, list(frame_data$V1, frame_data$V2), drop=TRUE)
+	list_data = lapply(frame_per_location, create_list_per_location)
+	return(list_data)
+}
+
+list_RSSI = create_list(data_RSSI_raw)
+
+# Plot the svg manually as XMF file and annotate it with our data at the same time
+svg_root = newXMLNode("svg") # Create the svg root node
+addAttributes(svg_root, "xmlns"="http://www.w3.org/2000/svg", "xmlns:xlink"="http://www.w3.org/1999/xlink", "width"="685pt", "height"="475pt", "viewBox"="0 0 685 475", "version"="1.1")
+
+## Create the location layer, and store the data just inside each circle
+group_location = newXMLNode("g", parent = svg_root) 
+addAttributes(group_location, "id"="layer_location")
+
+create_BS <- function(index_BS, list_BS, direction) {
+	BS = newXMLNode(paste("BS", index_BS, sep = "", collapse = NULL), parent = direction)
+	mean = newXMLNode("mean", parent = BS)
+	sd = newXMLNode("sd", parent = BS)
+	text_mean = newXMLTextNode(list_BS[[index_BS]]$mean, parent = mean)
+	text_sd = newXMLTextNode(list_BS[[index_BS]]$sd, parent = sd)
+}
+
+create_direction <- function(index_direction, list_direction, circle) {	
+
+	direction = newXMLNode(names(list_direction)[[index_direction]], parent = circle)
+	lapply(1 : 5, create_BS, list_BS = list_direction[[index_direction]][1 : 5], direction = direction)
+}
+
+create_location <- function(index_location, list_location, group_location) {
+	list_per_location = list_location[[index_location]]
+	if (length(list_per_location$list_per_direction) == 4) {
+		circle = newXMLNode("circle", parent = group_location) # Plot a solid svg circle
+		addAttributes(circle, "id" = paste("location", index_location, sep = "", collapse = NULL), "cx" = (75 - list_per_location$location[2]) * 10 + 2, "cy" = (47-list_per_location$location[1]) * 10 + 2, "r"="3", "stroke"="black", "stroke-width"="1", "fill"="black")
+
+		lapply(1:length(list_per_location$list_per_direction), create_direction, list_per_location$list_per_direction, circle = circle)
+	}
+}
+
+lapply(1 : length(list_RSSI), create_location, list_location = list_RSSI, group_location = group_location)
+
+## Create the BS layer
+frame_BS = read.csv("position_BS.csv", header = FALSE, sep = "\t", as.is=TRUE)
+group_BS = newXMLNode("g", parent = svg_root) 
+addAttributes(group_BS, "ID"="layer_BS")
+
+create_BS <- function(index_BS, frame_BS, group_BS) {
+	triangle = newXMLNode("polygon", parent = group_BS)
+
+	x = frame_BS[index_BS,2]
+	y = frame_BS[index_BS,3]
+
+	cordx1 = x * 10 + 2
+	cordy1 = (47 - y) * 10 + 2
+	cordx2 = cordx1 + 6
+	cordy2 = cordy1 + 6 * sqrt(3)
+	cordx3 = cordx1 - 6
+	cordy3 = cordy1 + 6 * sqrt(3)
+
+	point1 = paste(cordx1, cordy1, sep = ",", collapse = NULL)
+	point2 = paste(cordx2, cordy2, sep = ",", collapse = NULL)
+	point3 = paste(cordx3, cordy3, sep = ",", collapse = NULL)
+	points = paste(c(point1, point2, point3), collapse = " ")
+
+	addAttributes(triangle, "id" = paste("BS", index_BS, sep = "", collapse = NULL), "points"=points, "style"="fill:red;stroke:red;stroke-width:1")
+}
+lapply(1:5, create_BS, frame_BS=frame_BS, group_BS=group_BS)
+
+## Create floorplan layer
+frame_corner = read.csv("floorplan_corner.csv", header = FALSE, sep = "\t", as.is=TRUE)
+frame_wall = read.csv("floorplan_wall.csv", header = FALSE, sep = "\t", as.is=TRUE)
+group_floorplan = newXMLNode("g", parent = svg_root) 
+addAttributes(group_floorplan, "id"="layer_floorplan")
+
+create_wall <- function(index_wall, frame_corner, frame_wall, group_floorplan) {
+	x1 = frame_corner[frame_wall[index_wall, 1], 2]
+	y1 = frame_corner[frame_wall[index_wall, 1], 3]
+	x2 = frame_corner[frame_wall[index_wall, 2], 2]
+	y2 = frame_corner[frame_wall[index_wall, 2], 3]
+
+	segment = newXMLNode("line", parent = group_floorplan)
+	addAttributes(segment, "x1"= (75 - y1) * 10 + 2, "y1"= (47 - x1) * 10 + 2, "x2"=(75 - y2) * 10 + 2, "y2"= (47 - x2) * 10 + 2, "style"="stroke:rgb(0,0,0);stroke-width:2")
+}
+
+lapply(1 : nrow(frame_wall), create_wall, frame_corner=frame_corner, frame_wall=frame_wall, group_floorplan=group_floorplan)
+#
+saveXML(svg_root, file = "testVis.svg")
